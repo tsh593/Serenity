@@ -1,11 +1,11 @@
-// src/pages/ChatPage.jsx - COMPLETE FIXED VERSION WITH ALL EMOTIONS
+// src/pages/ChatPage.jsx - FIXED EMOTION DETECTION
 import React, { useState, useRef, useEffect } from 'react';
 import ChatInput from '../components/ChatInput';
 import ChatMessage from '../components/ChatMessage';
 import AvatarDisplay from '../components/AvatarDisplay';
 import { generateSpeech, stopSpeech, isSpeechPlaying, pauseSpeech, resumeSpeech } from '../services/speechmaticsTtsService';
 import { freesoundService } from '../services/freesoundService';
-import { getAvatarConfig, getPersonaByVoice, voiceGenderMap, emotionAliases } from '../config/avatarConfig';
+import { getAvatarConfig, getPersonaByVoice, voiceGenderMap, emotionAliases, extractEmotionFromText } from '../config/avatarConfig';
 import '../styles/ChatPage.css';
 import VideoBackground from '../components/VideoBackground';
 
@@ -21,21 +21,17 @@ const ChatPage = () => {
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState('sarah');
   const [showImage, setShowImage] = useState(false);
-  
+
   // Refs
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
-  const lastAssistantMessageRef = useRef(null);
-  
+  const isProcessingQueue = useRef(false); // Ref to track active playback loop
+
   // State for scroll detection
   const [userScrolled, setUserScrolled] = useState(false);
 
   // Get persona based on selected voice
   const [currentPersona, setCurrentPersona] = useState('Dr. Elara');
-
-  // Emotion queue for sequential emotions
-  const [emotionQueue, setEmotionQueue] = useState([]);
-  const emotionTimeoutRef = useRef(null);
 
   // Sync sound gender with voice selection
   useEffect(() => {
@@ -54,51 +50,32 @@ const ChatPage = () => {
     freesoundService.initialize();
   }, []);
 
-  // --- EMOTION QUEUE LOGIC ---
-  useEffect(() => {
-    if (emotionQueue.length > 0 && !emotionTimeoutRef.current) {
-      processNextEmotion();
-    }
-  }, [emotionQueue]);
-
-  const processNextEmotion = () => {
-    if (emotionQueue.length === 0) return;
-
-    const nextEmotion = emotionQueue[0];
-    console.log(`🎭 Processing emotion from queue: ${nextEmotion.emotion} for ${nextEmotion.duration}ms`);
-    
-    setCurrentEmotion(nextEmotion.emotion);
-    
-    emotionTimeoutRef.current = setTimeout(() => {
-      setEmotionQueue(prev => {
-        const newQueue = prev.slice(1);
-        if (newQueue.length === 0) {
-          console.log(`🎭 Emotion queue empty, keeping: ${nextEmotion.emotion}`);
-        } else {
-          setTimeout(() => processNextEmotion(), 50);
-        }
-        return newQueue;
-      });
-      emotionTimeoutRef.current = null;
-    }, nextEmotion.duration);
-  };
-
-  const queueEmotion = (emotion, duration) => {
-    const finalDuration = duration || getEmotionDuration(emotion);
-    console.log(`🎭 Queuing emotion: ${emotion} for ${finalDuration}ms`);
-    setEmotionQueue(prev => [...prev, { emotion, duration: finalDuration }]);
-  };
-
-  const setImmediateEmotion = (emotion) => {
-    if (emotionTimeoutRef.current) {
-      clearTimeout(emotionTimeoutRef.current);
-      emotionTimeoutRef.current = null;
-    }
-    setEmotionQueue([]);
-    
-    if (emotion !== 'neutral' || currentEmotion === 'neutral') {
-      setCurrentEmotion(emotion);
-    }
+  // Duration settings
+  const getEmotionDuration = (emotion) => {
+    const durations = {
+      'smile': 10000,
+      'joyful': 10000,
+      'laugh': 8000,
+      'surprised': 7000,
+      'thoughtful': 10000,
+      'concerned': 12000,
+      'sad': 12000,
+      'angry': 8000,
+      'scared': 8000,
+      'excited': 10000,
+      'empathetic': 10000,
+      'explain': 10000,
+      'neutral': 8000,
+      'curious': 10000,
+      'fearful': 8000,
+      'revulsed': 8000,
+      'shocked': 7000,
+      'thinking': 10000,
+      'giggle': 6000,
+      'happy': 10000,
+      'frown': 10000
+    };
+    return durations[emotion] || 8000;
   };
 
   // --- SCROLL LOGIC ---
@@ -106,8 +83,8 @@ const ChatPage = () => {
     const container = messagesContainerRef.current;
     if (container) {
       const scrollAmount = 300;
-      const targetScroll = direction === 'up' 
-        ? container.scrollTop - scrollAmount 
+      const targetScroll = direction === 'up'
+        ? container.scrollTop - scrollAmount
         : container.scrollTop + scrollAmount;
 
       container.scrollTo({
@@ -136,9 +113,9 @@ const ChatPage = () => {
       setTimeout(() => {
         try {
           if (instant || !userScrolled) {
-            messagesEndRef.current?.scrollIntoView({ 
-              behavior: instant ? 'auto' : 'smooth', 
-              block: 'end' 
+            messagesEndRef.current?.scrollIntoView({
+              behavior: instant ? 'auto' : 'smooth',
+              block: 'end'
             });
             setUserScrolled(false);
           }
@@ -163,7 +140,7 @@ const ChatPage = () => {
   // Show thinking expression during loading
   useEffect(() => {
     if (isLoading && !isSpeaking) {
-      setImmediateEmotion('thoughtful');
+      setCurrentEmotion('thoughtful');
     }
   }, [isLoading, isSpeaking]);
 
@@ -187,148 +164,44 @@ const ChatPage = () => {
     }
   };
 
-  // 🔥 UPDATED: Enhanced Emotion Detection with ALL Emotions
+  // FIXED: Use the centralized extractEmotionFromText function
   const analyzeEmotionFromAction = (action) => {
-    const actionLower = action.toLowerCase().trim();
-    
-    // Direct match in emotionAliases first
-    if (emotionAliases[actionLower]) {
-      return emotionAliases[actionLower];
-    }
-    
-    // Then check for partial matches
-    for (const [key, emotion] of Object.entries(emotionAliases)) {
-      if (actionLower.includes(key)) {
-        return emotion;
-      }
-    }
-    
-    return null;
+    // Use the centralized emotion extraction
+    const emotion = extractEmotionFromText(`*${action}*`);
+    return emotion || 'neutral';
   };
 
-  // 🔥 UPDATED: Enhanced Text Emotion Analysis
   const analyzeTextEmotion = (text, isAIResponse = false) => {
-    const content = text.toLowerCase().trim();
-    
-    // Quick priority checks for clear emotional indicators
-    if (/(\blaugh\b|\bchuckle\b|\bgiggle\b|\bhaha\b|\bhehe\b)/.test(content)) return 'joyful';
-    if (/(\bsmile\b|\bgrin\b|\bgrinning\b|\bwarmly\b)/.test(content)) return 'smile';
-    if (/(\bhappy\b|\bdelighted\b|\bpleased\b|\bjoy\b|\bjoyful\b)/.test(content)) return 'joyful';
-    if (/(\bconcerned\b|\bworried\b|\banxious\b|\btroubled\b)/.test(content)) return 'concerned';
-    if (/(\bsad\b|\bcry\b|\btears\b|\bheartbroken\b|\bunhappy\b)/.test(content)) return 'sad';
-    if (/(\bangry\b|\bmad\b|\bfurious\b|\bpissed\b|\bannoyed\b)/.test(content)) return 'angry';
-    if (/(\bsurprised\b|\bshocked\b|\bwow\b|\bamazing\b|\bunexpected\b)/.test(content)) return 'surprised';
-    if (/(\bthink\b|\bconsider\b|\bponder\b|\bthought\b|\bthinking\b)/.test(content)) return 'thoughtful';
-    if (/(\bscared\b|\bafraid\b|\bfear\b|\bterrified\b|\bfrightened\b)/.test(content)) return 'scared';
-    if (/(\bexcited\b|\bthrilled\b|\boverjoyed\b|\benthusiastic\b)/.test(content)) return 'excited';
-    if (/(\bexplain\b|\bdescribe\b|\bclarify\b|\belaborate\b)/.test(content)) return 'explain';
-    if (/(\bcurious\b|\bintrigued\b|\bfascinated\b|\bwonder\b|\bquestion\b)/.test(content)) return 'curious';
-    if (/(\bempathetic\b|\bunderstanding\b|\bcompassion\b|\bsympathetic\b)/.test(content)) return 'empathetic';
-    if (/(\bfearful\b|\bterrified\b|\bpanicked\b)/.test(content)) return 'fearful';
-    if (/(\brevulsed\b|\bdisgust\b|\bdisgusted\b|\bgross\b)/.test(content)) return 'revulsed';
-    
-    // For AI responses, detect empathetic language
-    if (isAIResponse) {
-      if (/(i understand|i hear you|that must be|i can imagine|that sounds)/.test(content)) return 'empathetic';
-      if (/(i'm sorry|condolence|sympathy|that's terrible|how awful)/.test(content)) return 'concerned';
-      if (/(are you okay|were you injured|anyone hurt|how are you feeling)/.test(content)) return 'concerned';
+    // Use the centralized emotion extraction
+    let emotion = extractEmotionFromText(text);
+
+    // Fallback for AI-specific patterns
+    if (isAIResponse && emotion === 'neutral') {
+      const content = text.toLowerCase().trim();
+      if (/(i understand|i hear you|that must be|i know how you feel)/.test(content)) return 'empathetic';
+      if (/(i'm sorry|condolence|sympathy|apologize)/.test(content)) return 'concerned';
+      if (/(thank you|thanks|appreciate|grateful)/.test(content)) return 'smile';
     }
-    
-    return 'neutral';
+
+    return emotion;
   };
 
   const extractEmotionsFromText = (text) => {
     const emotions = [];
-    
-    // Enhanced regex to capture *actions*, "quoted actions", and (parenthetical actions)
     const actionRegex = /\*([^*]+)\*|"([^"]+)"|\(([^)]+)\)/g;
     let match;
-    let currentPosition = 0;
-    
-    actionRegex.lastIndex = 0;
-    
+
     while ((match = actionRegex.exec(text)) !== null) {
-      const fullMatch = match[0];
       const actionText = (match[1] || match[2] || match[3]).trim();
-      const position = match.index;
-      
-      // Add text segment before this action (if any)
-      const textBefore = text.substring(currentPosition, position);
-      if (textBefore.trim().length > 0) {
-        const textEmotion = analyzeTextEmotion(textBefore, true);
-        if (textEmotion !== 'neutral') {
-          emotions.push({
-            emotion: textEmotion,
-            position: currentPosition,
-            duration: getEmotionDuration(textEmotion),
-            source: 'text',
-            originalText: textBefore.substring(0, 30) + '...'
-          });
-        }
-      }
-      
-      // Add the action emotion
       const actionEmotion = analyzeEmotionFromAction(actionText);
       if (actionEmotion) {
         emotions.push({
           emotion: actionEmotion,
-          position: position,
-          duration: getEmotionDuration(actionEmotion),
-          source: 'action',
-          originalText: fullMatch
-        });
-        console.log(`🎭 Found emotion from action "${fullMatch}": ${actionEmotion}`);
-      }
-      
-      currentPosition = position + fullMatch.length;
-    }
-    
-    // Add remaining text after last action
-    const remainingText = text.substring(currentPosition);
-    if (remainingText.trim().length > 0) {
-      const textEmotion = analyzeTextEmotion(remainingText, true);
-      if (textEmotion !== 'neutral') {
-        emotions.push({
-          emotion: textEmotion,
-          position: currentPosition,
-          duration: getEmotionDuration(textEmotion),
-          source: 'text',
-          originalText: remainingText.substring(0, 30) + '...'
+          isDemonstration: false
         });
       }
     }
-    
-    console.log('🎭 Final extracted emotions:', emotions);
     return emotions;
-  };
-
-  // 🔥 UPDATED: Complete Emotion Durations for ALL Emotions
-  const getEmotionDuration = (emotion) => {
-    const durations = {
-      'smile': 4000,
-      'joyful': 4000,
-      'laugh': 3500,
-      'surprised': 3000,
-      'thoughtful': 4000,
-      'concerned': 4500,
-      'sad': 4500,
-      'angry': 3500,
-      'scared': 3500,
-      'excited': 4000,
-      'empathetic': 4000,
-      'explain': 4000,
-      'neutral': 3000,
-      'curious': 4000,
-      'fearful': 3500,
-      'revulsed': 3500,
-      'shocked': 3000,
-      'thinking': 4000
-    };
-    return durations[emotion] || 3000;
-  };
-
-  const updateAvatarEmotion = (emotion) => {
-    setImmediateEmotion(emotion);
   };
 
   const getModelSettings = (model) => {
@@ -340,137 +213,153 @@ const ChatPage = () => {
     freesoundService.stopAllSounds();
     setIsAudioPlaying(false);
     setIsSpeaking(false);
-    setEmotionQueue([]);
-    if (emotionTimeoutRef.current) {
-      clearTimeout(emotionTimeoutRef.current);
-      emotionTimeoutRef.current = null;
-    }
+    isProcessingQueue.current = false;
   };
 
-  const extractSegmentsWithActions = (text) => {
-    const actionRegex = /\*([^*]+)\*|\(([^)]+)\)|"([^"]+)"/g;
-    const segments = [];
-    let lastIndex = 0;
-    let match;
-    
-    while ((match = actionRegex.exec(text)) !== null) {
-      const action = (match[1] || match[2] || match[3]).trim().toLowerCase();
-      const position = match.index;
-      
-      const beforeText = text.substring(lastIndex, position);
-      if (beforeText.trim().length > 0) {
-        segments.push({ type: 'text', content: beforeText });
-      }
-      
-      segments.push({ type: 'action', content: action });
-      lastIndex = match.index + match[0].length;
-    }
-    
-    const remainingText = text.substring(lastIndex);
-    if (remainingText.trim().length > 0) {
-      segments.push({ type: 'text', content: remainingText });
-    }
-    
-    return segments;
+  // Helper: Wait function
+  const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+  // Helper: Wait for Audio to Finish
+  const waitForAudioCompletion = () => {
+    return new Promise(resolve => {
+        // Immediate check
+        if (!isSpeechPlaying()) {
+            resolve();
+            return;
+        }
+
+        // Poll every 100ms
+        const checkInterval = setInterval(() => {
+            if (!isSpeechPlaying()) {
+                clearInterval(checkInterval);
+                resolve();
+            }
+        }, 100);
+
+        // Safety timeout (max 20 seconds waiting for one sentence)
+        setTimeout(() => {
+            clearInterval(checkInterval);
+            resolve();
+        }, 20000);
+    });
   };
 
   const cleanTextForSpeech = (text) => {
-    return text.replace(/\([^)]*\)/g, '').trim();
+    // Remove actions *...* and (...)
+    return text.replace(/\*.*?\*/g, '').replace(/\(.*?\)/g, '').trim();
   };
 
-  const handleTTSWithEmotions = async (segments, emotions) => {
-    if (!ttsEnabled || segments.length === 0) return;
-    
-    try {
-      setIsSpeaking(true);
-      setIsAudioPlaying(true);
-      setImmediateEmotion('neutral');
-      
-      let emotionIndex = 0;
-      
-      for (let i = 0; i < segments.length; i++) {
-        const segment = segments[i];
-        
-        if (segment.type === 'text') {
-          let cleanText = cleanTextForSpeech(segment.content);
-          cleanText = cleanText.replace(/\s+/g, ' ').trim().replace(/^[.,!?;]\s*/, '');
-          
-          if (cleanText.length > 0) {
-            // Queue extracted emotions for this segment
-            while (emotionIndex < emotions.length) {
-              const nextEmotion = emotions[emotionIndex];
-              if (i > 0) await new Promise(r => setTimeout(r, 200));
-              queueEmotion(nextEmotion.emotion, nextEmotion.duration);
-              emotionIndex++;
-            }
-            await generateSpeech(cleanText, selectedVoice);
-          }
-        } else if (segment.type === 'action') {
-          const actionEmotion = analyzeEmotionFromAction(segment.content);
-          if (actionEmotion) {
-            queueEmotion(actionEmotion, getEmotionDuration(actionEmotion));
-          }
-          
-          if (isSpeechPlaying()) pauseSpeech();
-          await freesoundService.playSoundForAction(segment.content);
-          if (isSpeechPlaying()) resumeSpeech();
-          
-          await new Promise(resolve => setTimeout(resolve, 50));
+  const extractSegmentsWithActions = (text) => {
+    // Split text by *action* or (action) or "Speech"
+    const regex = /(\*.*?\*|\(.*?\)|"[^"]+")/g;
+    const parts = text.split(regex);
+    const segments = [];
+
+    parts.forEach(part => {
+        const clean = part.trim();
+        if (!clean) return;
+
+        // Check if Action
+        if ((clean.startsWith('*') && clean.endsWith('*')) || (clean.startsWith('(') && clean.endsWith(')'))) {
+            segments.push({ type: 'action', content: clean.slice(1, -1).trim() });
         }
-      }
-      
-      if (emotions.length > 0) {
-        setImmediateEmotion(emotions[emotions.length - 1].emotion);
-      }
-      
+        // Else it's text (remove quotes if present)
+        else {
+            const textContent = (clean.startsWith('"') && clean.endsWith('"')) ? clean.slice(1, -1) : clean;
+            if (textContent.trim()) {
+                segments.push({ type: 'text', content: textContent.trim() });
+            }
+        }
+    });
+    return segments;
+  };
+
+  // MAIN TTS HANDLER - STRICT SEQUENTIAL LOGIC
+  const handleTTSWithEmotions = async (segments) => {
+    if (!ttsEnabled || segments.length === 0) return;
+
+    // Reset state
+    if (isProcessingQueue.current) stopAudio();
+
+    try {
+        isProcessingQueue.current = true;
+        setIsSpeaking(true);
+        setIsAudioPlaying(true);
+        setCurrentEmotion('neutral');
+
+        await handleSequentialPlayback(segments);
+
     } catch (error) {
-      console.warn('❌ TTS failed:', error.message);
+        console.warn('❌ TTS Error:', error);
     } finally {
-      setIsSpeaking(false);
-      setIsAudioPlaying(false);
+        setIsSpeaking(false);
+        setIsAudioPlaying(false);
+        isProcessingQueue.current = false;
     }
   };
 
-  // 🔥 UPDATED: Enhanced Prompt with ALL Emotion Support
+  // UNIFIED SEQUENTIAL PLAYBACK
+  const handleSequentialPlayback = async (segments) => {
+
+      for (const segment of segments) {
+          if (!isProcessingQueue.current) break;
+
+          if (segment.type === 'action') {
+              const emotion = analyzeEmotionFromAction(segment.content);
+              if (emotion) {
+                  console.log(`🎭 Action detected: ${emotion}`);
+                  setCurrentEmotion(emotion);
+
+                  // Try to play sound
+                  try {
+                      await freesoundService.playSoundForAction(emotion);
+                  } catch (e) {
+                      console.warn('Sound skipped:', e.message);
+                  }
+
+                  // Pause to let the emotion "land" visually (1.5 seconds)
+                  await wait(1500);
+              }
+          }
+          else if (segment.type === 'text') {
+              const textToSpeak = cleanTextForSpeech(segment.content);
+              if (textToSpeak.length > 0) {
+
+                  // CHECK: Does the text ITSELF imply an emotion?
+                  const impliedEmotion = analyzeTextEmotion(textToSpeak, true);
+                  if (impliedEmotion !== 'neutral') {
+                     console.log(`🎭 Text implied emotion: ${impliedEmotion}`);
+                     setCurrentEmotion(impliedEmotion);
+                  }
+
+                  console.log(`🗣️ Speaking: "${textToSpeak.substring(0, 30)}..."`);
+
+                  // Start speaking
+                  await generateSpeech(textToSpeak, selectedVoice);
+
+                  // Wait for speech to fully finish before moving to next segment
+                  await waitForAudioCompletion();
+
+                  // Small pause between sentences
+                  await wait(300);
+              }
+          }
+      }
+  };
+
   const fetchOllamaResponse = async (messages, userMessage) => {
     try {
       const modelSettings = getModelSettings(selectedModel);
-      
-      const conversationHistory = messages.slice(-8).map(msg => 
+
+      const conversationHistory = messages.slice(-8).map(msg =>
         `${msg.role === 'user' ? 'User' : currentPersona}: ${msg.content}`
       ).join('\n');
 
-      const prompt = `You are ${currentPersona}, a warm and expressive medical professional. 
-
-EMOTION EXPRESSION GUIDE - USE THESE FREQUENTLY:
-*smile* - For warmth, greetings, positivity, reassurance
-*laugh* - For humor, light moments, joy
-*thoughtful* - When considering, thinking, analyzing
-*concerned* - For serious topics, worries, problems
-*sad* - For empathy with sadness, loss, disappointment  
-*curious* - When interested, asking questions, learning
-*surprised* - For unexpected news, revelations
-*excited* - For good news, enthusiasm, positive energy
-*explain* - When teaching, clarifying information
-*empathetic* - For deep understanding and compassion
-*scared* - For fear, danger concerns
-*angry* - For frustration, injustice (use sparingly)
-
-CONVERSATION RULES:
-1. Be natural and expressive - use emotions to enhance communication
-2. Match emotion to context: happy topics = *smile*, serious = *concerned*
-3. Use *thoughtful* when considering options or giving advice
-4. Use *curious* when asking about someone's experiences
-5. Place emotions naturally within sentences, not just at start/end
-
-EXAMPLES:
-- *smile* "I'm glad to hear you're doing well today!"
-- *thoughtful* "Let me think about the best way to help with that..."
-- *curious* "What made you interested in learning about this?"
-- *concerned* "I'm sorry to hear you've been struggling with that."
-
-Conversation context:
-${conversationHistory || "New conversation"}
+      const prompt = `You are ${currentPersona}. 
+FORMATTING INSTRUCTIONS:
+- Use *emotion* to show expressions.
+- Place text inside "quotes" if specifically demonstrating.
+- Example: *smile* I am happy. *sad* I am sad.
 
 User: ${userMessage}
 ${currentPersona}:`;
@@ -498,7 +387,7 @@ ${currentPersona}:`;
   const handleSendMessage = async (content) => {
     if (!content.trim() || isLoading) return;
 
-    if (isSpeechPlaying()) stopAudio();
+    if (isSpeaking) stopAudio();
 
     const userEmotion = analyzeTextEmotion(content, false);
     const userMessage = {
@@ -511,15 +400,17 @@ ${currentPersona}:`;
 
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
-    updateAvatarEmotion(userEmotion);
+    setCurrentEmotion(userEmotion);
+
     setTimeout(() => scrollToBottom(true), 50);
 
     try {
-      updateAvatarEmotion('thoughtful');
+      // Show thinking face
+      setCurrentEmotion('thoughtful');
 
       const aiResponse = await fetchOllamaResponse([...messages, userMessage], content.trim());
       const emotions = extractEmotionsFromText(aiResponse);
-      
+
       let baseEmotion = 'neutral';
       if (emotions.length > 0) baseEmotion = emotions[0].emotion;
 
@@ -536,11 +427,16 @@ ${currentPersona}:`;
       setUserScrolled(false);
       setTimeout(() => scrollToBottom(), 100);
 
-      setIsLoading(false); 
+      setIsLoading(false);
 
       if (ttsEnabled) {
           const segments = extractSegmentsWithActions(aiResponse);
-          await handleTTSWithEmotions(segments, emotions);
+          await handleTTSWithEmotions(segments);
+      } else {
+        // Fallback if TTS disabled
+        if (emotions.length > 0) {
+            setCurrentEmotion(emotions[emotions.length - 1].emotion);
+        }
       }
 
     } catch (error) {
@@ -554,18 +450,16 @@ ${currentPersona}:`;
         persona: currentPersona
       };
       setMessages(prev => [...prev, errorMessage]);
-      updateAvatarEmotion('concerned');
+      setCurrentEmotion('concerned');
       setIsLoading(false);
     }
   };
 
   const clearChat = () => {
-    if (isSpeechPlaying()) stopAudio();
+    stopAudio();
     setMessages([]);
     setCurrentEmotion('neutral');
     setUserScrolled(false);
-    lastAssistantMessageRef.current = null;
-    setEmotionQueue([]);
   };
 
   const getOllamaStatusText = () => {
@@ -577,11 +471,10 @@ ${currentPersona}:`;
     }
   };
 
-  // 🔥 UPDATED: Complete Emotion Display Names
   const getEmotionDisplayName = (emotion) => {
     const names = {
       'neutral': 'Calm',
-      'joyful': 'Joyful', 
+      'joyful': 'Joyful',
       'sad': 'Compassionate',
       'angry': 'Angry',
       'surprised': 'Surprised',
@@ -597,7 +490,10 @@ ${currentPersona}:`;
       'revulsed': 'Concerned',
       'shocked': 'Surprised',
       'thinking': 'Thinking',
-      'laugh': 'Laughing'
+      'laugh': 'Laughing',
+      'giggle': 'Giggling',
+      'happy': 'Happy',
+      'frown': 'Concerned'
     };
     return names[emotion] || 'Calm';
   };
@@ -605,7 +501,7 @@ ${currentPersona}:`;
   return (
     <div className="chat-page">
       <VideoBackground />
-      
+
       <div className="chat-container">
         {/* Header */}
         <div className="chat-header">
@@ -615,20 +511,17 @@ ${currentPersona}:`;
               <h1>Serenity</h1>
             </div>
           </div>
-          
+
           <div className="header-center">
             <div className="persona-info">
               <h2>{currentPersona}</h2>
               <div className="status-pill">
                 <span className="status-dot"></span>
                 <span className="status-text">{getEmotionDisplayName(currentEmotion)}</span>
-                {emotionQueue.length > 0 && (
-                  <span className="emotion-queue-indicator">+{emotionQueue.length}</span>
-                )}
               </div>
             </div>
           </div>
-          
+
           <div className="header-right">
             <div className="connection-status">
               <div className={`status-indicator ${ollamaStatus}`}>
@@ -642,14 +535,14 @@ ${currentPersona}:`;
         <div className="chat-content">
           {/* Avatar Section */}
           <div className="avatar-section">
-            <AvatarDisplay 
+            <AvatarDisplay
               persona={currentPersona}
               emotion={currentEmotion}
               isSpeaking={isSpeaking}
               forceVideo={!showImage}
               isLoading={isLoading}
             />
-            
+
             <div className="avatar-info-panel">
               <div className="info-row">
                 <span className="info-label">Persona:</span>
@@ -658,9 +551,6 @@ ${currentPersona}:`;
               <div className="info-row">
                 <span className="info-label">Emotion:</span>
                 <span className="info-value emotion-value">{getEmotionDisplayName(currentEmotion)}</span>
-                {emotionQueue.length > 0 && (
-                  <span className="queue-indicator">(+{emotionQueue.length})</span>
-                )}
               </div>
               <div className="info-row">
                 <span className="info-label">Gender:</span>
@@ -676,7 +566,7 @@ ${currentPersona}:`;
 
             <div className="audio-controls-panel">
               <div className="control-group">
-                <button 
+                <button
                   className={`control-btn stop-btn ${!isAudioPlaying ? 'disabled' : ''}`}
                   onClick={stopAudio}
                   disabled={!isAudioPlaying}
@@ -685,10 +575,10 @@ ${currentPersona}:`;
                   <span>Stop Audio</span>
                 </button>
               </div>
-              
+
               <div className="voice-selection">
-                <select 
-                  value={selectedVoice} 
+                <select
+                  value={selectedVoice}
                   onChange={(e) => setSelectedVoice(e.target.value)}
                   className="voice-select"
                 >
@@ -705,15 +595,15 @@ ${currentPersona}:`;
           <div className="conversation-section">
             <div className="control-bar">
               <div className="control-group left">
-                <button 
+                <button
                   className={`control-btn toggle-btn ${showImage ? 'active' : ''}`}
                   onClick={() => setShowImage(!showImage)}
                 >
                   <span className="btn-icon">{showImage ? '🖼️' : '🎭'}</span>
                   <span>{showImage ? 'Image' : 'Video'}</span>
                 </button>
-                
-                <button 
+
+                <button
                   className={`control-btn tts-btn ${ttsEnabled ? 'active' : ''}`}
                   onClick={() => setTtsEnabled(!ttsEnabled)}
                 >
@@ -723,8 +613,8 @@ ${currentPersona}:`;
               </div>
 
               <div className="control-group center">
-                <select 
-                  value={selectedModel} 
+                <select
+                  value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
                   className="model-select"
                 >
@@ -741,21 +631,21 @@ ${currentPersona}:`;
               </div>
 
               <div className="control-group right scroll-controls">
-                <button 
-                  className="scroll-btn" 
+                <button
+                  className="scroll-btn"
                   onClick={() => handleManualScroll('up')}
                   title="Scroll Up"
                 >
                   ⬆️
                 </button>
-                <button 
-                  className="scroll-btn" 
+                <button
+                  className="scroll-btn"
                   onClick={() => handleManualScroll('down')}
                   title="Scroll Down"
                 >
                   ⬇️
                 </button>
-                
+
                 <button className="control-btn clear-btn" onClick={clearChat}>
                   <span className="btn-icon">🧹</span>
                   <span>Clear</span>
@@ -764,8 +654,8 @@ ${currentPersona}:`;
             </div>
 
             <div className="messages-container-wrapper">
-              <div 
-                className="messages-container" 
+              <div
+                className="messages-container"
                 ref={messagesContainerRef}
                 onScroll={handleScrollEvents}
               >
@@ -775,10 +665,6 @@ ${currentPersona}:`;
                       <div className="welcome-icon">🌙</div>
                       <h2>Welcome to Serenity</h2>
                       <p>Your peaceful space for conversation with {currentPersona}</p>
-                      <div className="welcome-tip">
-                        <strong>Tip:</strong> Try asking me to show different emotions like 
-                        *smile*, *laugh*, *curious*, or *thoughtful*!
-                      </div>
                     </div>
                   </div>
                 ) : (
@@ -789,11 +675,11 @@ ${currentPersona}:`;
                       content={message.content}
                       timestamp={message.timestamp}
                       emotion={message.emotion}
-                      persona={message.persona || currentPersona} 
+                      persona={message.persona || currentPersona}
                     />
                   ))
                 )}
-                
+
                 {isLoading && (
                   <div className="message loading-message">
                     <div className="message-content">
