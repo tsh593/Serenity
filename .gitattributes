@@ -26,3 +26,4 @@ path/to/your/large-file.bin filter=lfs diff=lfs merge=lfs -text
 *.obj filter=lfs diff=lfs merge=lfs -text
 *.blend filter=lfs diff=lfs merge=lfs -text
 node_modules/** filter=lfs diff=lfs merge=lfs -text
+node_modules/**/*.node filter=lfs diff=lfs merge=lfs -text
