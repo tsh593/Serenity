@@ -1074,3 +1074,34 @@
 .scroll-btn:active {
   transform: translateY(0);
 }
+
+/* Add to src/styles/ChatPage.css */
+
+.memory-summary {
+    margin-top: 10px;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    border-left: 3px solid #4CAF50;
+}
+
+.memory-summary .info-row {
+    margin: 4px 0;
+}
+
+.memory-summary .info-label {
+    color: #4CAF50;
+    font-weight: 500;
+}
+
+.memory-welcome-note {
+    margin-top: 10px;
+    padding: 8px;
+    background: rgba(76, 175, 80, 0.1);
+    border-radius: 6px;
+    border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.memory-welcome-note small {
+    color: #4CAF50;
+}

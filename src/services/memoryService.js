@@ -1,10 +1,10 @@
-// src/services/memoryService.js
+// src/services/memoryService.js - FIXED VERSION
 // Hybrid Memory System: Immediate Context Buffer + Long-Term Emotional Vault
 class MemoryService {
     constructor() {
         // Immediate Context Buffer (short-term memory)
         this.immediateBuffer = [];
-        this.bufferSize = 10; // Last 10 messages
+        this.bufferSize = 15; // Last 15 messages
 
         // Long-Term Emotional Vault
         this.memories = [];
@@ -15,6 +15,7 @@ class MemoryService {
         this.bufferKey = 'serenity_buffer';
 
         console.log('🧠 Memory Service Initialized');
+        this.initialize();
     }
 
     async initialize() {
@@ -76,6 +77,7 @@ class MemoryService {
             significance: metadata.significance || 1,
             timestamp: new Date().toISOString(),
             tags: metadata.tags || [],
+            persona: metadata.persona || 'User',
             ...metadata
         };
 
@@ -121,6 +123,9 @@ class MemoryService {
 
         if (lowerContent.includes('police') || lowerContent.includes('charge')) significance += 2;
 
+        if (lowerContent.includes('stole') || lowerContent.includes('thief') ||
+            lowerContent.includes('steal') || lowerContent.includes('theft')) significance += 2;
+
         // Moderate significance for personal details
         if (lowerContent.includes('i feel') ||
             lowerContent.includes('my ') ||
@@ -135,7 +140,11 @@ class MemoryService {
         if (lowerContent.includes('police')) tags.push('legal', 'police');
         if (lowerContent.includes('charge')) tags.push('legal', 'charges');
         if (lowerContent.includes('betray')) tags.push('betrayal', 'trust');
-        if (lowerContent.includes('thief') || lowerContent.includes('steal')) tags.push('theft', 'property');
+        if (lowerContent.includes('thief') || lowerContent.includes('steal') ||
+            lowerContent.includes('stole') || lowerContent.includes('theft')) tags.push('theft', 'property');
+        if (lowerContent.includes('friend')) tags.push('friend', 'relationship');
+        if (lowerContent.includes('depressed') || lowerContent.includes('sad')) tags.push('depression', 'emotion');
+        if (lowerContent.includes('mobile') || lowerContent.includes('phone')) tags.push('property', 'mobile');
 
         // Add to buffer
         this.addToBuffer({
@@ -215,7 +224,7 @@ class MemoryService {
             .slice(0, limit);
     }
 
-    // Get context for AI prompt
+    // Get context for AI prompt - UPDATED FOR BETTER CONTEXT
     getCurrentContext() {
         if (!this.memories.length && !this.immediateBuffer.length) {
             return "No previous context available.";
@@ -223,43 +232,64 @@ class MemoryService {
 
         const contextParts = [];
 
-        // Add relevant memories based on recent buffer
+        // Add recent conversation history
         if (this.immediateBuffer.length > 0) {
-            const lastMessage = this.immediateBuffer[this.immediateBuffer.length - 1];
-            if (lastMessage && lastMessage.content) {
-                const relevantMemories = this.searchMemories(lastMessage.content, {
-                    limit: 3,
-                    minSignificance: 2
+            contextParts.push("RECENT CONVERSATION HISTORY:");
+            const recent = this.immediateBuffer.slice(-8); // Last 8 messages
+            recent.forEach(entry => {
+                const role = entry.role === 'user' ? 'User' : (entry.persona || 'Assistant');
+                const emotion = entry.emotion && entry.emotion !== 'neutral' ? ` (feeling ${entry.emotion})` : '';
+                contextParts.push(`${role}: ${entry.content}${emotion}`);
+            });
+        }
+
+        // Add important long-term memories if available
+        const recentUserMessages = this.immediateBuffer.filter(msg => msg.role === 'user');
+        if (recentUserMessages.length > 0) {
+            const lastUserMessage = recentUserMessages[recentUserMessages.length - 1];
+            if (lastUserMessage && lastUserMessage.content) {
+                const relevantMemories = this.searchMemories(lastUserMessage.content, {
+                    limit: 2,
+                    minSignificance: 3
                 });
 
                 if (relevantMemories.length > 0) {
-                    contextParts.push("PREVIOUS IMPORTANT CONVERSATIONS:");
+                    contextParts.push("\nPREVIOUSLY DISCUSSED IMPORTANT TOPICS:");
                     relevantMemories.forEach((memory, index) => {
-                        const emotionDisplay = memory.emotion !== 'neutral' ? ` (${memory.emotion})` : '';
-                        contextParts.push(`${index + 1}. ${memory.persona || 'User'}: "${memory.content.substring(0, 100)}..."${emotionDisplay}`);
+                        const emotionDisplay = memory.emotion !== 'neutral' ? ` (was ${memory.emotion})` : '';
+                        contextParts.push(`${index + 1}. ${memory.persona}: "${memory.content.substring(0, 80)}..."${emotionDisplay}`);
                     });
                 }
             }
         }
 
-        // Add recent buffer context
-        if (this.immediateBuffer.length > 0) {
-            contextParts.push("\nRECENT CONVERSATION:");
-            const recent = this.immediateBuffer.slice(-5);
-            recent.forEach(entry => {
-                const role = entry.role === 'user' ? 'User' : (entry.persona || 'Assistant');
-                const emotion = entry.emotion && entry.emotion !== 'neutral' ? ` *${entry.emotion}*` : '';
-                contextParts.push(`${role}: ${entry.content.substring(0, 80)}...${emotion}`);
-            });
-        }
-
-        // Add emotional patterns if detected
-        const emotionalPatterns = this.detectEmotionalPatterns();
-        if (emotionalPatterns) {
-            contextParts.push(`\nEMOTIONAL CONTEXT: ${emotionalPatterns}`);
+        // Add key topic summary if available
+        const currentTopics = this.getCurrentTopics();
+        if (currentTopics.length > 0) {
+            contextParts.push(`\nCURRENT TOPICS OF DISCUSSION: ${currentTopics.join(', ')}`);
         }
 
         return contextParts.join('\n');
+    }
+
+    // Get current topics from conversation
+    getCurrentTopics() {
+        const topics = new Set();
+
+        // Check last 5 messages for topics
+        const recentMessages = this.immediateBuffer.slice(-5);
+        recentMessages.forEach(msg => {
+            const content = msg.content.toLowerCase();
+
+            if (content.includes('friend') || content.includes('friendship')) topics.add('friendship');
+            if (content.includes('stole') || content.includes('theft') || content.includes('steal')) topics.add('theft');
+            if (content.includes('mobile') || content.includes('phone')) topics.add('phone/property');
+            if (content.includes('depressed') || content.includes('sad')) topics.add('emotional distress');
+            if (content.includes('betray') || content.includes('betrayal')) topics.add('betrayal');
+            if (content.includes('police') || content.includes('charge')) topics.add('legal matters');
+        });
+
+        return Array.from(topics);
     }
 
     // Detect emotional patterns in memories
@@ -309,36 +339,13 @@ class MemoryService {
         console.log('🧹 Memory buffer cleared');
     }
 
-    // Export memories (for backup)
-    exportMemories() {
-        return {
-            memories: this.memories,
-            buffer: this.immediateBuffer,
-            exportedAt: new Date().toISOString()
-        };
-    }
-
-    // Import memories
-    importMemories(data) {
-        if (data.memories && Array.isArray(data.memories)) {
-            this.memories = [...this.memories, ...data.memories];
-        }
-        if (data.buffer && Array.isArray(data.buffer)) {
-            this.immediateBuffer = data.buffer;
-        }
-        this.saveToStorage();
-        console.log(`📥 Imported ${data.memories?.length || 0} memories`);
-    }
-
-    // Get statistics
-    getStats() {
+    // Get memory summary for display
+    getMemorySummary() {
         return {
             totalMemories: this.memories.length,
-            bufferSize: this.immediateBuffer.length,
-            topEmotions: this.getTopEmotions(),
-            lastUpdated: this.memories.length > 0
-                ? new Date(this.memories[this.memories.length - 1].timestamp).toLocaleString()
-                : 'Never'
+            recentConversations: this.immediateBuffer.length,
+            currentTopics: this.getCurrentTopics(),
+            topEmotions: this.getTopEmotions()
         };
     }
 
